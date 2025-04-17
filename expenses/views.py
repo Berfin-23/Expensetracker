@@ -17,8 +17,6 @@ import requests
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
-from nltk.tokenize import word_tokenize
-from nltk.corpus import stopwords
 import nltk
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import render, redirect
@@ -27,25 +25,49 @@ import datetime
 from .models import ExpenseLimit
 from django.core.mail import send_mail
 from django.conf import settings
-data = pd.read_csv('dataset.csv')
 
-# Preprocessing
-stop_words = set(stopwords.words('english'))
+# Download necessary NLTK resources
+nltk.download('punkt')
+nltk.download('stopwords')
 
+# Define a simpler text preprocessing function that doesn't rely on tokenize
 def preprocess_text(text):
-    tokens = word_tokenize(text.lower())
-    tokens = [t for t in tokens if t.isalnum() and t not in stop_words]
-    return ' '.join(tokens)
+    if not isinstance(text, str):
+        return ""
+    # Convert to lowercase
+    text = text.lower()
+    # Basic cleaning without using word_tokenize
+    words = ''.join([c if c.isalnum() or c.isspace() else ' ' for c in text]).split()
+    # Load stopwords directly
+    try:
+        from nltk.corpus import stopwords
+        stop_words = set(stopwords.words('english'))
+        # Filter out stopwords
+        words = [word for word in words if word not in stop_words]
+    except:
+        # If stopwords fail, just proceed with the words we have
+        pass
+    return ' '.join(words)
 
-data['clean_description'] = data['description'].apply(preprocess_text)
+# Load dataset
+try:
+    data = pd.read_csv('dataset.csv')
+    # Apply preprocessing to the description column
+    data['clean_description'] = data['description'].apply(preprocess_text)
 
-# Feature extraction
-tfidf_vectorizer = TfidfVectorizer()
-X = tfidf_vectorizer.fit_transform(data['clean_description'])
+    # Feature extraction
+    tfidf_vectorizer = TfidfVectorizer()
+    X = tfidf_vectorizer.fit_transform(data['clean_description'])
 
-# Train a RandomForestClassifier
-model = RandomForestClassifier()
-model.fit(X, data['category'])
+    # Train a RandomForestClassifier
+    model = RandomForestClassifier()
+    model.fit(X, data['category'])
+except Exception as e:
+    print(f"Error initializing model: {e}")
+    # Initialize empty objects if the model can't be loaded
+    model = None
+    tfidf_vectorizer = None
+
 @login_required(login_url='/authentication/login')
 def search_expenses(request):
     if request.method == 'POST':
@@ -300,4 +322,3 @@ def get_expense_of_day(user):
     expenses=Expense.objects.filter(owner=user,date=current_date)
     total_expenses=sum(expense.amount for expense in expenses)
     return total_expenses
-    
